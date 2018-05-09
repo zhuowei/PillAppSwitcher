@@ -23,13 +23,22 @@ CLASSPATH="$(pm path net.zhuoweizhang.pill|sed -e s/^package//)" app_process /sd
  */
 public final class PillServer extends NanoHTTPD {
   public PillServer() {
-    super(11133);
+    super("localhost", 11133);
   }
 
   @Override
   public Response serve(IHTTPSession session) {
     try {
-      return newFixedLengthResponse(Response.Status.OK, "application/json", genJson().toString());
+      if (session.getUri().equals("/")) {
+        return newFixedLengthResponse(Response.Status.OK, "application/json", genJson().toString());
+      }
+      if (session.getUri().startsWith("/thumb/")) {
+        int id = Integer.parseInt(session.getUri().substring("/thumb/".length()));
+        byte[] bytes = getTaskThumbnail(id);
+        if (bytes == null) return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "not found");
+        return newFixedLengthResponse(Response.Status.OK, "image/jpg", new ByteArrayInputStream(bytes), bytes.length);
+      }
+      return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "not found");
     } catch (Exception e) {
       e.printStackTrace();
       return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", e.toString());
@@ -39,19 +48,13 @@ public final class PillServer extends NanoHTTPD {
   private JSONArray genJson() throws Exception {
     List<ActivityManager.RecentTaskInfo> tasks = getRecentTasks(5, 0, 0);
     JSONArray jsonArray = new JSONArray();
-    int thumbs = 0;
     for (ActivityManager.RecentTaskInfo taskInfo: tasks) {
       JSONObject jsonObject = new JSONObject();
       System.out.println("serving: " + taskInfo.toString());
       jsonObject.put("id", taskInfo.id);
       jsonObject.put("persistentId", taskInfo.persistentId);
       jsonObject.put("topPackage", taskInfo.topActivity == null? null: taskInfo.topActivity.getPackageName());
-      long start = System.currentTimeMillis();
-      byte[] taskThumb = getTaskThumbnail(taskInfo.persistentId);
-      jsonObject.put("screenshot", taskThumb == null? null: Base64.encodeToString(taskThumb, 0));
-      System.out.println(System.currentTimeMillis() - start);
       jsonArray.put(jsonObject);
-      if (++thumbs > 5) break;
     }
     return jsonArray;
   }
@@ -66,8 +69,8 @@ public final class PillServer extends NanoHTTPD {
     System.out.println(System.currentTimeMillis() - start);
     Bitmap bmp = (Bitmap)Bitmap.class.getMethod("createHardwareBitmap", graphicBuffer.getClass()).invoke(null, graphicBuffer);
     if (bmp == null) return null;
-    System.out.println(System.currentTimeMillis() - start);
-    Bitmap scaledBmp = Bitmap.createScaledBitmap(bmp, bmp.getWidth() / 4, bmp.getHeight() / 4, false);
+    System.out.println("create " + (System.currentTimeMillis() - start));
+    Bitmap scaledBmp = Bitmap.createScaledBitmap(bmp, bmp.getWidth(), bmp.getHeight(), false);
     System.out.println(System.currentTimeMillis() - start);
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     scaledBmp.compress(Bitmap.CompressFormat.JPEG, 80, baos);
